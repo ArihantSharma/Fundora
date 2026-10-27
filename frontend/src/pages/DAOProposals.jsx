@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
+import { shortHash } from "../blockchain/contract";
 
 function statusBadge(s) {
   const map = { Approved: "badge-success", Pending: "badge-pending", Rejected: "badge-danger" };
@@ -13,20 +14,44 @@ function fmt(n) {
   return "₹" + n;
 }
 
-function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone }) {
+function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone, onApproveOnChain, walletConnected }) {
   const total = proposal.yesVotes + proposal.noVotes;
   const yesPct = total > 0 ? Math.round((proposal.yesVotes / total) * 100) : 0;
   const noPct  = total > 0 ? 100 - yesPct : 0;
   const [approved, setApproved] = useState(false);
   const [rejected, setRejected] = useState(false);
+  const [txHash,   setTxHash]   = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [err,      setErr]      = useState("");
 
-  function handleApproveMilestone() {
-    onApproveMilestone(proposal.id);
-    setApproved(true);
+  async function handleApproveMilestone() {
+    setErr(""); setLoading(true);
+    try {
+      await onApproveMilestone(proposal.id);
+      setApproved(true);
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
   }
-  function handleRejectMilestone() {
-    onRejectMilestone(proposal.id);
-    setRejected(true);
+  async function handleRejectMilestone() {
+    setErr(""); setLoading(true);
+    try {
+      await onRejectMilestone(proposal.id);
+      setRejected(true);
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  }
+  async function handleApproveOnChain() {
+    setErr(""); setLoading(true);
+    try {
+      const receipt = await onApproveOnChain(
+        proposal.startupId,
+        proposal.milestoneId,
+        proposal.milestoneIndex ?? 0,
+      );
+      setTxHash(receipt.hash);
+      setApproved(true);
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
   }
 
   return (
@@ -83,10 +108,10 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone 
       {/* Actions */}
       {proposal.type === "Startup Approval" && !proposal.hasVoted && proposal.status === "Pending" && (
         <div style={{ display: "flex", gap: "10px" }}>
-          <button className="btn btn-success btn-sm" onClick={() => onVote(proposal.id, "yes")}>
+          <button className="btn btn-success btn-sm" onClick={async () => { try { await onVote(proposal.id, "yes"); } catch(e) { setErr(e.message); } }}>
             👍 Vote YES
           </button>
-          <button className="btn btn-danger btn-sm" onClick={() => onVote(proposal.id, "no")}>
+          <button className="btn btn-danger btn-sm" onClick={async () => { try { await onVote(proposal.id, "no"); } catch(e) { setErr(e.message); } }}>
             👎 Vote NO
           </button>
         </div>
@@ -99,11 +124,16 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone 
       )}
 
       {proposal.type === "Milestone Approval" && !approved && !rejected && proposal.status === "Pending" && (
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button className="btn btn-success btn-sm" onClick={handleApproveMilestone}>
-            ✅ Approve Milestone
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          {walletConnected && (
+            <button className="btn btn-primary btn-sm" onClick={handleApproveOnChain} disabled={loading}>
+              {loading ? "Confirming…" : "🦊 Approve On-chain"}
+            </button>
+          )}
+          <button className="btn btn-success btn-sm" onClick={handleApproveMilestone} disabled={loading}>
+            {loading ? "…" : "✅ Approve (Simulated)"}
           </button>
-          <button className="btn btn-danger btn-sm" onClick={handleRejectMilestone}>
+          <button className="btn btn-danger btn-sm" onClick={handleRejectMilestone} disabled={loading}>
             ❌ Reject Milestone
           </button>
         </div>
@@ -116,6 +146,13 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone 
             <span className="icon">✅</span>
             <p>Milestone Approved by DAO</p>
           </div>
+          {txHash && (
+            <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "10px 14px", fontSize: ".82rem" }}>
+              <span style={{ fontWeight: 600 }}>On-chain tx: </span>
+              <span style={{ color: "var(--brand)", fontFamily: "monospace" }} title={txHash}>{shortHash(txHash)}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: ".72rem", marginLeft: "8px" }}>(Hardhat local)</span>
+            </div>
+          )}
           <div style={{
             background: "var(--brand-light)",
             border: "1.5px solid var(--brand)",
@@ -139,12 +176,17 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone 
           ❌ Milestone Rejected — Founder must revise and resubmit.
         </div>
       )}
+      {err && (
+        <div style={{ marginTop: "10px", color: "var(--danger)", fontSize: ".83rem", background: "#FEE2E2", padding: "8px 12px", borderRadius: "var(--radius-sm)" }}>
+          ⚠️ {err}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function DAOProposals() {
-  const { proposals, voteOnProposal, approveMilestoneProposal, rejectMilestoneProposal } = useApp();
+  const { proposals, voteOnProposal, approveMilestoneProposal, rejectMilestoneProposal, walletConnected, approveReleaseOnChain } = useApp();
   const [filter, setFilter] = useState("All");
 
   const filtered = proposals.filter((p) => {
@@ -214,6 +256,8 @@ export default function DAOProposals() {
               onVote={voteOnProposal}
               onApproveMilestone={approveMilestoneProposal}
               onRejectMilestone={rejectMilestoneProposal}
+              onApproveOnChain={approveReleaseOnChain}
+              walletConnected={walletConnected}
             />
           ))}
         </div>

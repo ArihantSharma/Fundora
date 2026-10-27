@@ -13,6 +13,7 @@ export default function RegisterStartup() {
 
   const [submitted, setSubmitted] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [apiError, setApiError] = useState("");
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -29,19 +30,24 @@ export default function RegisterStartup() {
     if (e.target.files[0]) setFileName(e.target.files[0].name);
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    addStartup({
-      name: form.name,
-      description: form.description,
-      industry: form.industry,
-      team: form.teamMembers.split(",").map((s) => s.trim()).filter(Boolean),
-      fundingRequired: Number(form.fundingRequired),
-      pitchDeck: fileName || "pitch_deck.pdf",
-      tags: [form.industry],
-      founder: "You",
-    });
-    setSubmitted(true);
+    setApiError("");
+    try {
+      await addStartup({
+        name: form.name,
+        description: form.description,
+        industry: form.industry,
+        team: form.teamMembers.split(",").map((s) => s.trim()).filter(Boolean),
+        fundingRequired: Number(form.fundingRequired),
+        pitchDeck: fileName || "pitch_deck.pdf",
+        tags: [form.industry],
+        founder: "You",
+      });
+      setSubmitted(true);
+    } catch (err) {
+      setApiError(err.message || "Failed to submit startup. Is the backend running?");
+    }
   }
 
   if (submitted) {
@@ -196,6 +202,11 @@ export default function RegisterStartup() {
             <button type="submit" className="btn btn-primary btn-full btn-lg">
               Submit for DAO Approval →
             </button>
+            {apiError && (
+              <div style={{ color: "var(--danger)", fontSize: ".85rem", padding: "10px", background: "#FEE2E2", borderRadius: "var(--radius-sm)" }}>
+                ⚠️ {apiError}
+              </div>
+            )}
           </form>
         </div>
       </div>

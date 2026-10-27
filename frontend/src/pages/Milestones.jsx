@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
+import { shortHash } from "../blockchain/contract";
 
 function fmt(n) {
   if (n >= 100000) return "₹" + (n / 100000).toFixed(1).replace(".0", "") + "L";
@@ -110,10 +111,14 @@ export default function Milestones() {
   const totalFunds = ms.reduce((a, m) => a + m.amount, 0);
   const releasedFunds = ms.filter((m) => m.status === "Completed").reduce((a, m) => a + m.amount, 0);
 
-  function handleSubmitEvidence(filename) {
-    submitMilestoneEvidence(selectedStartupId, evidenceModal.id, filename);
-    setSubmitted(evidenceModal.id);
-    setEvidenceModal(null);
+  async function handleSubmitEvidence(filename) {
+    try {
+      await submitMilestoneEvidence(selectedStartupId, evidenceModal.id, filename);
+      setSubmitted(evidenceModal.id);
+      setEvidenceModal(null);
+    } catch (err) {
+      alert(err.message || "Evidence submission failed. Is the backend running?");
+    }
   }
 
   return (
@@ -211,9 +216,16 @@ export default function Milestones() {
 
                     {/* Completed – funds released notice */}
                     {m.status === "Completed" && (
-                      <div className="success-box mt-8" style={{ padding: "10px 14px" }}>
-                        <span style={{ fontSize: "1rem" }}>💸</span>
-                        <p style={{ fontSize: ".82rem" }}>{fmt(m.amount)} released to your wallet</p>
+                      <div className="success-box mt-8" style={{ padding: "10px 14px", flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "1rem" }}>💸</span>
+                          <p style={{ fontSize: ".82rem", margin: 0 }}>{fmt(m.amount)} released to your wallet</p>
+                        </div>
+                        {m.releaseTxHash && (
+                          <div style={{ fontSize: ".75rem", color: "var(--success)" }}>
+                            On-chain tx: <span style={{ fontFamily: "monospace" }} title={m.releaseTxHash}>{shortHash(m.releaseTxHash)}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

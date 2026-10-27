@@ -1,24 +1,39 @@
-# Logs
-logs
+# ── Node / Frontend ──────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# ── Python / Backend ─────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Database ─────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Environment secrets ───────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Blockchain / Hardhat ──────────────────────────────────────────
+blockchain/artifacts/
+blockchain/cache/
+blockchain/typechain-types/
+# Never commit real private keys or mnemonics
+*.key
+*.pem
+
+# ── Logs ─────────────────────────────────────────────────────────
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+logs/
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+# ── OS / IDE clutter ─────────────────────────────────────────────
+.DS_Store
+.idea/
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
