@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Fundora — docker-compose.yml
+#
+# Services:
+#   hardhat       — local Ethereum node (port 8545, exposed to host for MetaMask)
+#   hardhat-deploy — deploys FundoraFunding once and writes deployment.json
+#   backend       — FastAPI + SQLite (port 8000)
+#   frontend      — Vite dev server (port 5173)
+#
+# Volumes:
+#   db-data       — SQLite database (persists across restarts)
+#   shared        — deployment.json written by hardhat-deploy, read by frontend
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Hardhat local Ethereum node ─────────────────────────────────────────
+  hardhat:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    command: sh start-node.sh
+    ports:
+      # Expose RPC to the host so MetaMask can connect.
+      # MetaMask RPC URL: http://localhost:8545  Chain ID: 31337
+      - "8545:8545"
+    volumes:
+      - shared:/shared
+    networks:
+      - fundora
+    healthcheck:
+      test: >
+        node -e "
+          const http = require('http');
+          const req = http.request(
+            { hostname:'localhost', port:8545, method:'POST',
+              headers:{'Content-Type':'application/json'} },
+            (r) => process.exit(r.statusCode === 200 ? 0 : 1)
+          );
+          req.on('error', () => process.exit(1));
+          req.write(JSON.stringify({jsonrpc:'2.0',method:'net_version',params:[],id:1}));
+          req.end();
+        "
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ── Contract deployment (runs once, exits) ──────────────────────────────
+  hardhat-deploy:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    command: sh deploy.sh
+    environment:
+      # Points to the hardhat service by Docker service name
+      HARDHAT_RPC_URL: http://hardhat:8545
+      SHARED_DIR: /shared
+    volumes:
+      - shared:/shared
+    networks:
+      - fundora
+    depends_on:
+      hardhat:
+        condition: service_healthy
+    restart: "no"    # run once and exit
+
+  # ── FastAPI backend ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # SQLite file lives on the db-data volume
+      DATABASE_URL: sqlite:////app/data/fundora.db
+      # Auth: session signing secret — change in production
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      # CORS: the origin the browser uses to reach the frontend
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      # Seed demo data on first run (set to false for production)
+      SEED_ON_STARTUP: "false"
+      # Blockchain: RPC for container-to-container calls (not browser-facing)
+      HARDHAT_RPC_URL: http://hardhat:8545
+      # Hardhat account #0 private key — public test key, zero real value
+      DEPLOYER_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    volumes:
+      - db-data:/app/data
+      # Mount the shared volume so the backend can read deployment.json
+      - shared:/shared
+    networks:
+      - fundora
+    depends_on:
+      hardhat-deploy:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ── React + Vite frontend ───────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      # The browser (on the host) talks to localhost:8000, not the container name.
+      # Container-to-container calls are not made by the browser.
+      VITE_API_URL: http://localhost:8000
+    volumes:
+      - shared:/shared
+    networks:
+      - fundora
+    depends_on:
+      hardhat-deploy:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  db-data:
+    # SQLite data persists here. Use `docker compose down -v` ONLY when you
+    # want to wipe the database and re-seed from scratch.
+  shared:
+    # Temporary shared space for deployment.json.
+    # Safe to remove with `docker compose down -v`.
+
+# ── Network ───────────────────────────────────────────────────────────────────
+networks:
+  fundora:
+    driver: bridge

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 
@@ -9,29 +9,54 @@ const ROLE_OPTIONS = [
 ];
 
 export default function Auth() {
-  const { setRole } = useApp();
+  const { user, login, register } = useApp();
   const navigate = useNavigate();
 
   const [isLogin, setIsLogin] = useState(true);
   const [selectedRole, setSelectedRole] = useState("Founder");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // If already logged in, redirect to the right page.
+  useEffect(() => {
+    if (user) {
+      if (user.role === "Founder") navigate("/dashboard");
+      else if (user.role === "Investor") navigate("/marketplace");
+      else navigate("/dao");
+    }
+  }, [user]);
 
   function handle(e) {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+    setError("");
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    setRole(selectedRole);
-    if (selectedRole === "Founder") navigate("/dashboard");
-    else if (selectedRole === "Investor") navigate("/marketplace");
-    else navigate("/dao");
+    setError("");
+    setSubmitting(true);
+    try {
+      let loggedInUser;
+      if (isLogin) {
+        loggedInUser = await login(form.email, form.password);
+      } else {
+        if (!form.name.trim()) { setError("Please enter your name."); setSubmitting(false); return; }
+        loggedInUser = await register(form.name, form.email, form.password, selectedRole);
+      }
+      if (loggedInUser.role === "Founder") navigate("/dashboard");
+      else if (loggedInUser.role === "Investor") navigate("/marketplace");
+      else navigate("/dao");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "24px" }}>
           <span style={{ fontSize: "1.4rem" }}>⬡</span>
           <span style={{ fontWeight: 800, fontSize: "1.2rem", color: "var(--brand)" }}>Fundora</span>
@@ -78,48 +103,52 @@ export default function Auth() {
               value={form.password}
               onChange={handle}
               required
+              minLength={8}
             />
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Your Role</label>
-            <div className="role-select-grid">
-              {ROLE_OPTIONS.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  className={`role-select-btn${selectedRole === r.value ? " active" : ""}`}
-                  onClick={() => setSelectedRole(r.value)}
-                >
-                  <span className="r-icon">{r.icon}</span>
-                  {r.label}
-                </button>
-              ))}
+          {!isLogin && (
+            <div className="form-group">
+              <label className="form-label">Your Role</label>
+              <div className="role-select-grid">
+                {ROLE_OPTIONS.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    className={`role-select-btn${selectedRole === r.value ? " active" : ""}`}
+                    onClick={() => setSelectedRole(r.value)}
+                  >
+                    <span className="r-icon">{r.icon}</span>
+                    {r.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <button type="submit" className="btn btn-primary btn-full" style={{ marginTop: "4px" }}>
-            {isLogin ? "Sign In →" : "Create Account →"}
+          {error && (
+            <div style={{
+              padding: "10px 14px",
+              background: "#FEE2E2",
+              border: "1px solid #FCA5A5",
+              borderRadius: "var(--radius-sm)",
+              color: "#991B1B",
+              fontSize: ".85rem",
+            }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          <button type="submit" className="btn btn-primary btn-full" disabled={submitting} style={{ marginTop: "4px" }}>
+            {submitting ? "Please wait…" : isLogin ? "Sign In →" : "Create Account →"}
           </button>
         </form>
 
         <div className="auth-switch">
           {isLogin ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => setIsLogin((v) => !v)}>
+          <button onClick={() => { setIsLogin((v) => !v); setError(""); }}>
             {isLogin ? "Register" : "Sign In"}
           </button>
-        </div>
-
-        {/* Demo hint */}
-        <div style={{
-          marginTop: "20px",
-          padding: "12px 16px",
-          background: "var(--brand-light)",
-          borderRadius: "var(--radius-sm)",
-          fontSize: ".8rem",
-          color: "var(--brand)",
-        }}>
-          💡 <strong>Prototype mode:</strong> Select any role and click Sign In to explore the full demo.
         </div>
       </div>
     </div>

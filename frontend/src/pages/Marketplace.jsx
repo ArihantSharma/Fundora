@@ -22,7 +22,8 @@ export default function Marketplace() {
   const [search, setSearch] = useState("");
 
   const visible = startups.filter((s) => {
-    const matchStatus = true; // show all for demo
+    // Only show Approved startups to regular users.
+    const matchStatus = s.status === "Approved";
     const matchIndustry = filter === "All" || s.industry === filter;
     const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.industry.toLowerCase().includes(search.toLowerCase());
     return matchStatus && matchIndustry && matchSearch;

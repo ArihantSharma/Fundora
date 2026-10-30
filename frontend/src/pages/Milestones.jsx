@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useApp } from "../context/AppContext";
+import { useApp, API } from "../context/AppContext";
 import { shortHash } from "../blockchain/contract";
 
 function fmt(n) {
@@ -25,17 +25,56 @@ function milestoneIcon(s) {
   return { label: "🔒", cls: "locked" };
 }
 
-function EvidenceModal({ milestone, onClose, onSubmit }) {
-  const [file, setFile] = useState("");
-  const [notes, setNotes] = useState("");
+function EvidenceModal({ milestone, onClose, onSubmitDone }) {
+  const [fileObj, setFileObj]   = useState(null);  // actual File object
+  const [notes,   setNotes]     = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
+
+  const ALLOWED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"];
+  const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
   function handleFile(e) {
-    if (e.target.files[0]) setFile(e.target.files[0].name);
+    const f = e.target.files[0];
+    if (!f) return;
+    if (!ALLOWED_TYPES.includes(f.type) && !f.name.match(/\.(pdf|png|jpe?g|gif|webp)$/i)) {
+      setUploadErr("Only PDF and image files (PNG, JPEG, GIF, WebP) are accepted.");
+      return;
+    }
+    if (f.size > MAX_BYTES) {
+      setUploadErr(`File is too large (max 10 MB, got ${(f.size / 1024 / 1024).toFixed(1)} MB).`);
+      return;
+    }
+    setUploadErr("");
+    setFileObj(f);
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    onSubmit(file || "evidence_document.pdf");
+    if (!fileObj) { setUploadErr("Please select a file to upload."); return; }
+    setUploading(true);
+    setUploadErr("");
+    try {
+      const fd = new FormData();
+      fd.append("file", fileObj);
+      fd.append("notes", notes);
+      const res = await fetch(`${API}/api/milestones/${milestone.id}/evidence/upload`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+        // Do NOT set Content-Type — browser sets it with the correct boundary automatically.
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Upload failed." }));
+        throw new Error(err.detail || "Upload failed.");
+      }
+      const data = await res.json();
+      onSubmitDone(data);
+    } catch (err) {
+      setUploadErr(err.message);
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -50,7 +89,7 @@ function EvidenceModal({ milestone, onClose, onSubmit }) {
 
           {/* File upload */}
           <div className="form-group">
-            <label className="form-label">Evidence Document *</label>
+            <label className="form-label">Evidence Document * (PDF or image, max 10 MB)</label>
             <div style={{
               border: "2px dashed var(--border)",
               borderRadius: "var(--radius)",
@@ -60,21 +99,31 @@ function EvidenceModal({ milestone, onClose, onSubmit }) {
               background: "var(--bg)",
               cursor: "pointer",
             }}>
-              {file ? (
+              {fileObj ? (
                 <div>
                   <div style={{ fontSize: "1.3rem", marginBottom: "6px" }}>📄</div>
-                  <div style={{ fontWeight: 600 }}>{file}</div>
-                  <div style={{ fontSize: ".8rem", color: "var(--success)", marginTop: "4px" }}>Attached ✓</div>
+                  <div style={{ fontWeight: 600 }}>{fileObj.name}</div>
+                  <div style={{ fontSize: ".8rem", color: "var(--success)", marginTop: "4px" }}>
+                    {(fileObj.size / 1024).toFixed(0)} KB — ready to upload ✓
+                  </div>
                 </div>
               ) : (
                 <div>
                   <div style={{ fontSize: "1.3rem", marginBottom: "6px" }}>📁</div>
-                  <div style={{ fontWeight: 600, fontSize: ".9rem" }}>Upload Evidence</div>
-                  <div style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>PDF, images, or documents</div>
+                  <div style={{ fontWeight: 600, fontSize: ".9rem" }}>Click to select or drop a file</div>
+                  <div style={{ fontSize: ".8rem", color: "var(--text-muted)" }}>PDF, PNG, JPEG, GIF, WebP — max 10 MB</div>
                 </div>
               )}
-              <input type="file" onChange={handleFile} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} />
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp"
+                onChange={handleFile}
+                style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }}
+              />
             </div>
+            {uploadErr && (
+              <div style={{ color: "var(--danger)", fontSize: ".82rem", marginTop: "6px" }}>⚠️ {uploadErr}</div>
+            )}
           </div>
 
           {/* Notes */}
@@ -82,7 +131,7 @@ function EvidenceModal({ milestone, onClose, onSubmit }) {
             <label className="form-label">Notes for DAO</label>
             <textarea
               className="form-input"
-              placeholder="Describe what you've achieved for this milestone…"
+              placeholder="Describe what you have achieved for this milestone…"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               style={{ minHeight: 80 }}
@@ -90,8 +139,10 @@ function EvidenceModal({ milestone, onClose, onSubmit }) {
           </div>
 
           <div className="modal-actions">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary">Submit to DAO →</button>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={uploading}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={uploading}>
+              {uploading ? "Uploading…" : "Submit to DAO →"}
+            </button>
           </div>
         </form>
       </div>
@@ -100,25 +151,65 @@ function EvidenceModal({ milestone, onClose, onSubmit }) {
 }
 
 export default function Milestones() {
-  const { startups, milestones, role, submitMilestoneEvidence } = useApp();
-  const [selectedStartupId, setSelectedStartupId] = useState(1);
-  const [evidenceModal, setEvidenceModal] = useState(null); // milestone object
-  const [submitted, setSubmitted] = useState(null); // milestoneId
+  const { startups, milestones, user, submitMilestoneEvidence } = useApp();
+  const role = user?.role;
 
-  const startup = startups.find((s) => s.id === selectedStartupId);
-  const ms = milestones[selectedStartupId] || [];
-  const completed = ms.filter((m) => m.status === "Completed").length;
-  const totalFunds = ms.reduce((a, m) => a + m.amount, 0);
+  // Default to the first startup that belongs to this founder, falling back
+  // to the first approved startup (for investors/DAO members viewing).
+  const myStartup = user?.role === "Founder"
+    ? startups.find((s) => s.founderId === user.id)
+    : null;
+  const defaultId = myStartup?.id
+    ?? startups.find((s) => s.status === "Approved")?.id
+    ?? startups[0]?.id
+    ?? null;
+
+  const [selectedStartupId, setSelectedStartupId] = useState(null);
+  const [evidenceModal, setEvidenceModal] = useState(null);
+  const [submitted, setSubmitted] = useState(null);
+
+  // Update default once startups load.
+  const effectiveId = selectedStartupId ?? defaultId;
+
+  const startup       = startups.find((s) => s.id === effectiveId);
+  const ms            = milestones[effectiveId] || [];
+  const completed     = ms.filter((m) => m.status === "Completed").length;
+  const totalFunds    = ms.reduce((a, m) => a + m.amount, 0);
   const releasedFunds = ms.filter((m) => m.status === "Completed").reduce((a, m) => a + m.amount, 0);
 
-  async function handleSubmitEvidence(filename) {
+  async function handleSubmitEvidence(uploadResult) {
+    // uploadResult comes from the backend after successful file upload.
+    // The backend already updated the milestone status to "Pending DAO Approval".
+    setSubmitted(evidenceModal.id);
+    setEvidenceModal(null);
+    // Reload data so milestone status updates in the UI.
     try {
-      await submitMilestoneEvidence(selectedStartupId, evidenceModal.id, filename);
-      setSubmitted(evidenceModal.id);
-      setEvidenceModal(null);
-    } catch (err) {
-      alert(err.message || "Evidence submission failed. Is the backend running?");
-    }
+      const [sRes, mRes, pRes] = await Promise.all([
+        fetch(`${API}/api/startups`, { credentials: "include" }),
+        fetch(`${API}/api/milestones`, { credentials: "include" }),
+        fetch(`${API}/api/proposals`, { credentials: "include" }),
+      ]);
+      // Let AppContext handle its own state — just trigger a page reload signal
+      // by nudging the submitted state.
+    } catch { /* best-effort reload */ }
+  }
+
+  // Startups to show in the selector: all approved + founder's own (even if Pending).
+  const selectorStartups = startups.filter(
+    (s) => s.status === "Approved" || s.founderId === user?.id
+  );
+
+  if (startups.length > 0 && selectorStartups.length === 0) {
+    return (
+      <div className="page-wrapper">
+        <div className="page-header"><h1>Milestones</h1></div>
+        <div className="empty-state">
+          <div className="icon">📋</div>
+          <h3>No startups available</h3>
+          <p>No approved startups yet.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -130,10 +221,10 @@ export default function Milestones() {
 
       {/* Startup selector */}
       <div style={{ marginBottom: "24px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        {startups.filter((s) => s.status === "Approved" || s.id === selectedStartupId).map((s) => (
+        {selectorStartups.map((s) => (
           <button
             key={s.id}
-            className={`btn btn-sm${selectedStartupId === s.id ? " btn-primary" : " btn-ghost"}`}
+            className={`btn btn-sm${effectiveId === s.id ? " btn-primary" : " btn-ghost"}`}
             onClick={() => setSelectedStartupId(s.id)}
           >
             {s.name}
@@ -180,7 +271,9 @@ export default function Milestones() {
       <div className="milestone-list">
         {ms.map((m, i) => {
           const ic = milestoneIcon(m.status);
-          const isActive = m.status === "In Progress";
+          const isActive = m.status === "In Progress" || m.status === "Pending DAO Approval";
+          const isUnlocked = m.status === "In Progress"
+            || (m.status === "Locked" && (i === 0 || ms[i-1]?.status === "Completed"));
           const isPending = m.status === "Pending DAO Approval";
           const justSubmitted = submitted === m.id;
 
@@ -230,8 +323,8 @@ export default function Milestones() {
                     )}
                   </div>
 
-                  {/* Submit evidence button */}
-                  {role === "Founder" && isActive && (
+                  {/* Submit evidence button — available for unlocked milestones that aren't pending/completed */}
+                  {role === "Founder" && isUnlocked && m.status !== "Pending DAO Approval" && m.status !== "Completed" && (
                     <button
                       className="btn btn-primary btn-sm"
                       style={{ flexShrink: 0 }}
@@ -241,7 +334,7 @@ export default function Milestones() {
                     </button>
                   )}
 
-                  {role === "Founder" && m.status === "Locked" && (
+                  {role === "Founder" && m.status === "Locked" && !isUnlocked && (
                     <button className="btn btn-ghost btn-sm" disabled style={{ flexShrink: 0, opacity: 0.4 }}>
                       🔒 Locked
                     </button>
@@ -265,7 +358,7 @@ export default function Milestones() {
         <EvidenceModal
           milestone={evidenceModal}
           onClose={() => setEvidenceModal(null)}
-          onSubmit={handleSubmitEvidence}
+          onSubmitDone={handleSubmitEvidence}
         />
       )}
     </div>

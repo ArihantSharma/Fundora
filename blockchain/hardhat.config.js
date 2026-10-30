@@ -6,10 +6,13 @@ module.exports = {
   networks: {
     // Default in-process network used by `npx hardhat test`
     hardhat: {},
-    // Long-running local node started with `npx hardhat node`
-    // MetaMask connects here: http://127.0.0.1:8545  Chain ID: 31337
+
+    // Long-running node.
+    // Inside Docker the URL is http://hardhat:8545 (service name).
+    // On the host machine it is http://127.0.0.1:8545.
+    // HARDHAT_RPC_URL is injected by the deploy container's environment.
     localhost: {
-      url: "http://127.0.0.1:8545",
+      url: process.env.HARDHAT_RPC_URL || "http://127.0.0.1:8545",
     },
   },
 };

@@ -3,20 +3,33 @@ import { useApp } from "../context/AppContext";
 
 export default function Navbar() {
   const {
-    role, setRole,
+    user, logout,
     walletAddress, walletBalance,
     walletConnected, walletError,
     connectMetaMask, disconnectWallet,
   } = useApp();
   const navigate = useNavigate();
 
-  const roles = ["Founder", "Investor", "DAO Member"];
+  // Show only nav links relevant to the user's role.
+  const navLinks = [];
+  if (user?.role === "Founder") {
+    navLinks.push({ to: "/dashboard", label: "Dashboard" });
+    navLinks.push({ to: "/milestones", label: "Milestones" });
+  }
+  if (user?.role === "Investor") {
+    navLinks.push({ to: "/marketplace", label: "Marketplace" });
+  }
+  if (user?.role === "DAO Member") {
+    navLinks.push({ to: "/dao", label: "DAO" });
+  }
+  // Marketplace is visible to everyone, DAO to DAO members, milestones to founders.
+  if (user?.role !== "Investor") {
+    navLinks.push({ to: "/marketplace", label: "Marketplace" });
+  }
 
-  function handleRoleChange(r) {
-    setRole(r);
-    if (r === "Founder") navigate("/dashboard");
-    else if (r === "Investor") navigate("/marketplace");
-    else navigate("/dao");
+  async function handleLogout() {
+    await logout();
+    navigate("/");
   }
 
   return (
@@ -27,29 +40,27 @@ export default function Navbar() {
       </NavLink>
 
       <div className="navbar-links">
-        <NavLink to="/dashboard"   className={({ isActive }) => isActive ? "active" : ""}>Dashboard</NavLink>
-        <NavLink to="/marketplace" className={({ isActive }) => isActive ? "active" : ""}>Marketplace</NavLink>
-        <NavLink to="/dao"         className={({ isActive }) => isActive ? "active" : ""}>DAO</NavLink>
-        <NavLink to="/milestones"  className={({ isActive }) => isActive ? "active" : ""}>Milestones</NavLink>
+        {/* Show only links the current role can access (deduplicated) */}
+        {[...new Map(navLinks.map((l) => [l.to, l])).values()].map((l) => (
+          <NavLink key={l.to} to={l.to} className={({ isActive }) => isActive ? "active" : ""}>
+            {l.label}
+          </NavLink>
+        ))}
       </div>
 
       <div className="navbar-right">
-        {/* Role switcher */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: ".75rem", color: "var(--text-muted)", fontWeight: 600 }}>View as:</span>
-          {roles.map((r) => (
-            <button
-              key={r}
-              onClick={() => handleRoleChange(r)}
-              className={`role-btn${role === r ? " active" : ""}`}
-              style={{ padding: "4px 10px", fontSize: ".75rem" }}
-            >
-              {r}
+        {/* Logged-in user badge + logout */}
+        {user && (
+          <>
+            <span className="role-badge">{user.role}</span>
+            <span style={{ fontSize: ".8rem", color: "var(--text-muted)", fontWeight: 500 }}>
+              {user.name}
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={handleLogout} style={{ fontSize: ".78rem" }}>
+              Logout
             </button>
-          ))}
-        </div>
-
-        <span className="role-badge">{role}</span>
+          </>
+        )}
 
         {/* Wallet button */}
         {walletConnected ? (

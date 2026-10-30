@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useApp } from "../context/AppContext";
+import { useApp, API } from "../context/AppContext";
 import { shortHash } from "../blockchain/contract";
 
 function statusBadge(s) {
@@ -72,7 +72,19 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone,
           <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
             <span><strong>Milestone:</strong> {proposal.milestoneTitle}</span>
             <span><strong>Amount:</strong> {fmt(proposal.milestoneAmount)}</span>
-            {proposal.evidence && <span><strong>Evidence:</strong> 📄 {proposal.evidence}</span>}
+            {proposal.evidence && (
+              <span>
+                <strong>Evidence:</strong>{" "}
+                <a
+                  href={`${API}/uploads/${proposal.evidence}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--brand)", textDecoration: "underline" }}
+                >
+                  📄 View / Download
+                </a>
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -81,6 +93,43 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone,
         <span>📅 {proposal.submittedDate}</span>
         <span>🏢 {proposal.startupName}</span>
       </div>
+
+      {/* Voting deadline info — only for milestone proposals with a deadline */}
+      {proposal.votingDeadline && (
+        <div style={{
+          padding: "10px 14px",
+          borderRadius: "var(--radius-sm)",
+          background: proposal.deadlinePassed ? "#F1F5F9" : "#EFF6FF",
+          border: `1px solid ${proposal.deadlinePassed ? "var(--border)" : "#93C5FD"}`,
+          fontSize: ".82rem",
+          marginBottom: "12px",
+          display: "flex",
+          gap: "16px",
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}>
+          {proposal.deadlinePassed ? (
+            <span style={{ color: "var(--text-muted)" }}>⏰ Voting closed</span>
+          ) : (
+            <span style={{ color: "#1D4ED8", fontWeight: 600 }}>
+              ⏳ {proposal.timeRemaining} remaining
+            </span>
+          )}
+          <span style={{ color: "var(--text-muted)" }}>
+            Deadline: {new Date(proposal.votingDeadline).toLocaleString()}
+          </span>
+          {proposal.requiredQuorum != null && (
+            <span style={{ color: "var(--text-muted)" }}>
+              Quorum: {proposal.yesVotes + proposal.noVotes}/{proposal.requiredQuorum} votes needed
+            </span>
+          )}
+        </div>
+      )}
+      {!proposal.votingDeadline && proposal.type === "Milestone Approval" && (
+        <div style={{ fontSize: ".78rem", color: "var(--text-muted)", marginBottom: "8px" }}>
+          ⚠️ No voting deadline set — submit evidence to start the 48-hour window.
+        </div>
+      )}
 
       {/* Vote bar */}
       <div style={{ marginBottom: "8px" }}>
@@ -91,23 +140,24 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone,
       </div>
 
       {/* Vote counts */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "10px", marginBottom: "16px" }}>
         {[
-          { label: "YES",       value: proposal.yesVotes, color: "var(--success)" },
-          { label: "NO",        value: proposal.noVotes,  color: "var(--danger)"  },
-          { label: "Approval",  value: yesPct + "%",      color: "var(--text)"    },
-          { label: "Required",  value: proposal.requiredPercentage + "%", color: "var(--text-muted)" },
+          { label: "YES",       value: proposal.yesVotes,             color: "var(--success)" },
+          { label: "NO",        value: proposal.noVotes,              color: "var(--danger)"  },
+          { label: "Total",     value: proposal.yesVotes + proposal.noVotes, color: "var(--text)" },
+          { label: "Quorum",    value: `${proposal.yesVotes + proposal.noVotes}/${proposal.requiredQuorum ?? "?"}`, color: "var(--text-muted)" },
+          { label: "Required %",value: proposal.requiredPercentage + "%", color: "var(--text-muted)" },
         ].map(({ label, value, color }) => (
-          <div key={label} style={{ textAlign: "center", padding: "10px", background: "var(--bg)", borderRadius: "var(--radius-sm)" }}>
-            <div style={{ fontSize: "1.2rem", fontWeight: 800, color }}>{value}</div>
-            <div style={{ fontSize: ".72rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".4px" }}>{label}</div>
+          <div key={label} style={{ textAlign: "center", padding: "8px 4px", background: "var(--bg)", borderRadius: "var(--radius-sm)" }}>
+            <div style={{ fontSize: "1rem", fontWeight: 800, color }}>{value}</div>
+            <div style={{ fontSize: ".65rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: ".3px" }}>{label}</div>
           </div>
         ))}
       </div>
 
-      {/* Actions */}
-      {proposal.type === "Startup Approval" && !proposal.hasVoted && proposal.status === "Pending" && (
-        <div style={{ display: "flex", gap: "10px" }}>
+      {/* Voting actions — shown for BOTH Startup and Milestone proposals */}
+      {!proposal.hasVoted && proposal.status === "Pending" && (
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <button className="btn btn-success btn-sm" onClick={async () => { try { await onVote(proposal.id, "yes"); } catch(e) { setErr(e.message); } }}>
             👍 Vote YES
           </button>
@@ -117,24 +167,25 @@ function ProposalCard({ proposal, onVote, onApproveMilestone, onRejectMilestone,
         </div>
       )}
 
-      {proposal.type === "Startup Approval" && proposal.hasVoted && (
+      {proposal.hasVoted && proposal.status === "Pending" && (
         <div style={{ fontSize: ".85rem", fontWeight: 600, color: "var(--text-muted)" }}>
           ✓ You voted <strong style={{ color: proposal.userVote === "yes" ? "var(--success)" : "var(--danger)" }}>{proposal.userVote?.toUpperCase()}</strong>
         </div>
       )}
 
+      {/* Finalize / Approve / Reject — only after quorum is met or deadline passed */}
       {proposal.type === "Milestone Approval" && !approved && !rejected && proposal.status === "Pending" && (
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
           {walletConnected && (
             <button className="btn btn-primary btn-sm" onClick={handleApproveOnChain} disabled={loading}>
               {loading ? "Confirming…" : "🦊 Approve On-chain"}
             </button>
           )}
           <button className="btn btn-success btn-sm" onClick={handleApproveMilestone} disabled={loading}>
-            {loading ? "…" : "✅ Approve (Simulated)"}
+            {loading ? "…" : "✅ Finalize (Approve)"}
           </button>
           <button className="btn btn-danger btn-sm" onClick={handleRejectMilestone} disabled={loading}>
-            ❌ Reject Milestone
+            ❌ Finalize (Reject)
           </button>
         </div>
       )}

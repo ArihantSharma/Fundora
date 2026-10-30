@@ -23,9 +23,15 @@ __pycache__/
 blockchain/artifacts/
 blockchain/cache/
 blockchain/typechain-types/
+# deployment.json is auto-generated; do not commit
+frontend/src/blockchain/deployment.json
 # Never commit real private keys or mnemonics
 *.key
 *.pem
+
+# ── Docker ───────────────────────────────────────────────────────
+# (docker-compose.yml is committed; only ignore local override)
+docker-compose.override.yml
 
 # ── Logs ─────────────────────────────────────────────────────────
 *.log

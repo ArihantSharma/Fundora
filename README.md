@@ -1,8 +1,16 @@
 # Fundora
 
-A college project demonstrating a **decentralised startup incubation platform** with milestone-based funding and DAO governance.
+A college project demonstrating a **decentralised startup incubation platform** with milestone-based funding, DAO governance, and real blockchain integration.
 
-Founders register startups, a DAO community votes to approve them, investors fund them with simulated ₹ amounts **or real test ETH via MetaMask**, and funds are released in milestone tranches only after the DAO approves each one — enforced by a Solidity smart contract.
+---
+
+## What Fundora Does
+
+- **Founders** register startups and submit milestone evidence
+- **DAO Members** vote to approve startups and milestone releases
+- **Investors** browse approved startups and fund them with simulated ₹ or real test ETH via MetaMask
+- Funds are held in escrow by a Solidity smart contract and released in tranches only after DAO approval
+- All user accounts are real — passwords are hashed, sessions are server-managed, and every endpoint is protected by role-based access control
 
 ---
 
@@ -11,232 +19,304 @@ Founders register startups, a DAO community votes to approve them, investors fun
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, Vite 8, React Router v7, ethers.js v6, plain CSS |
-| Backend | Python 3, FastAPI, SQLAlchemy, SQLite |
-| Smart contracts | Solidity 0.8.24, Hardhat 2, hardhat-toolbox |
-| Local blockchain | Hardhat in-process / `hardhat node` (Chain ID 31337) |
+| Backend | Python 3, FastAPI, SQLAlchemy, SQLite, bcrypt |
+| Smart contracts | Solidity 0.8.24, Hardhat 2 |
+| Auth | Server-side sessions (HttpOnly cookies), bcrypt password hashing |
+| Container | Docker, Docker Compose |
 
 ---
 
-## Project Structure
+## Architecture
 
 ```
-Fundora/
-├── frontend/                  React + Vite app
-│   ├── src/
-│   │   ├── blockchain/
-│   │   │   ├── contract.js        MetaMask helpers + on-chain calls
-│   │   │   └── FundoraFunding.json  Contract ABI (auto-generated)
-│   │   ├── context/AppContext.jsx   All state + API + blockchain actions
-│   │   ├── components/Navbar.jsx    Wallet connect button
-│   │   ├── pages/                   8 pages
-│   │   └── index.css
-│   ├── .env                   VITE_CONTRACT_ADDRESS (copy from .env.example)
-│   └── package.json
-│
-├── backend/
-│   ├── main.py                Entire backend: models, seed, all routes
-│   └── requirements.txt
-│
-├── blockchain/
-│   ├── contracts/
-│   │   └── FundoraFunding.sol   Escrow + voting + milestone release
-│   ├── scripts/
-│   │   └── deploy.js
-│   ├── test/
-│   │   └── FundoraFunding.test.js  24 tests
-│   └── hardhat.config.js
-│
-├── .gitignore
-└── README.md
+┌─────────────────────────────────────────────────────────────┐
+│  Browser (host machine)                                     │
+│  ┌──────────────┐   HTTP :8000    ┌─────────────────────┐   │
+│  │  React app   │ ──────────────▶ │  FastAPI backend    │   │
+│  │  (port 5173) │  +cookie        │  SQLite on volume    │   │
+│  └──────────────┘                 │  bcrypt passwords    │   │
+│         │                         │  session cookies     │   │
+│         │ MetaMask RPC             └─────────────────────┘   │
+│         ▼ (port 8545)                                        │
+│  ┌─────────────────┐                                        │
+│  │  Hardhat node    │  ┌──────────────┐                      │
+│  │  (Chain ID 31337)│  │  deploy svc  │                      │
+│  └─────────────────┘  └──────────────┘                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Prerequisites
+## Roles and Permissions
 
-- **Node.js** v18+ (`node --version`)
-- **Python** 3.10+ (`python3 --version`)
-- **MetaMask** browser extension — [metamask.io](https://metamask.io)
+| Role | Can do | Cannot do |
+|---|---|---|
+| **Founder** | Register startups, view own dashboard, submit milestone evidence for own startups | Invest, vote on proposals, approve milestones |
+| **Investor** | Browse marketplace, invest (simulated or on-chain ETH), view own portfolio | Register startups, vote, approve milestones |
+| **DAO Member** | View proposals, vote on startup approvals, approve/reject milestone releases | Register startups, invest |
+
+Users **cannot change their role** after registration. The role is enforced by the backend on every protected endpoint — changing frontend state or API requests will not grant access.
+
+---
+
+## Authentication
+
+### How it works
+
+1. **Register** at `/api/auth/register` — name, email, password (min 8 chars), role
+2. Password is hashed with **bcrypt** and stored in the database
+3. A random session token is generated, its SHA-256 hash stored in the `user_sessions` table
+4. The raw token is sent to the browser as an **HttpOnly cookie** (`fundora_session`)
+5. Every subsequent request includes the cookie automatically (via `credentials: "include"`)
+6. The backend validates the session on every protected request
+7. **Logout** deletes the session from the database and clears the cookie
+8. Sessions expire after **7 days**
+
+### Security notes
+
+- Passwords are never stored in plaintext or returned in API responses
+- Session tokens are stored hashed (SHA-256) in the database — the raw token only exists in the cookie
+- Seeded demo users have no password hash and **cannot log in**
+- `SECRET_KEY` env var should be changed in production
+- The cookie uses `secure=False` for local HTTP dev; set to `True` behind HTTPS in production
 
 ---
 
 ## Running the Project
 
-You need **three terminals** for the full on-chain demo.
-
-### Terminal 1 — Hardhat local blockchain node
+### With Docker (recommended)
 
 ```bash
-cd blockchain
-npx hardhat node
+# First time or after code changes
+docker compose up --build
+
+# Subsequent runs
+docker compose up
 ```
 
-Leaves a local Ethereum node running at **http://127.0.0.1:8545** (Chain ID 31337).  
-It prints 20 funded test accounts. Copy **Account #0**'s private key — you will import it into MetaMask.
+Wait ~60 seconds for all services. The frontend reads the contract address automatically from the deploy service.
 
-### Terminal 2 — Deploy the smart contract
-
-Run this once each time you start a fresh Hardhat node:
-
+**Stop (keep database):**
 ```bash
-cd blockchain
-npx hardhat run scripts/deploy.js --network localhost
+docker compose down
 ```
 
-Copy the printed contract address, then paste it into `frontend/.env`:
-
+**Full reset (wipe database and blockchain):**
+```bash
+docker compose down -v
 ```
-VITE_CONTRACT_ADDRESS=<address printed above>
+
+### Without Docker (local development)
+
+**Terminal 1 — Hardhat node:**
+```bash
+cd blockchain && npm install && npx hardhat node
 ```
 
-The address is already prefilled with the default Hardhat deployment address (`0x5FbDB…`). It stays the same as long as no other contracts are deployed first.
+**Terminal 2 — Deploy contract:**
+```bash
+cd blockchain && npx hardhat run scripts/deploy.js --network localhost
+# Copy VITE_CONTRACT_ADDRESS → paste into frontend/.env
+```
 
-### Terminal 3 — Backend
-
+**Terminal 3 — Backend:**
 ```bash
 cd backend
-
-# First time only
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-
-# Start
-.venv/bin/uvicorn main:app --reload
+SEED_ON_STARTUP=true .venv/bin/uvicorn main:app --reload
 ```
 
-Backend starts at **http://localhost:8000**.  
-API docs: **http://localhost:8000/docs**  
-The SQLite database (`backend/fundora.db`) is created automatically and seeded with demo data on first run.
-
-### Terminal 4 — Frontend
-
+**Terminal 4 — Frontend:**
 ```bash
-cd frontend
-npm install        # first time only
-npm run dev
+cd frontend && npm install && npm run dev
 ```
-
-Frontend starts at **http://localhost:5173**.
 
 ---
 
-## Connecting MetaMask to the Local Network
+## URLs
 
-1. Open MetaMask → **Settings → Networks → Add a network manually**
-
-| Field | Value |
+| Service | URL |
 |---|---|
-| Network Name | Hardhat Local |
-| RPC URL | http://127.0.0.1:8545 |
-| Chain ID | 31337 |
-| Currency Symbol | ETH |
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:8000 |
+| API docs (Swagger) | http://localhost:8000/docs |
+| Hardhat RPC (MetaMask) | http://localhost:8545 |
 
-2. Import a test account: **Import account → Private key**  
-   Paste the private key of **Account #0** from the `npx hardhat node` output.  
-   It comes pre-loaded with 10,000 test ETH.
+---
 
-3. In the Fundora UI, click **Connect Wallet** in the navbar.
+## Environment Variables
 
-> ⚠️ These are test accounts with no real value. Never send real ETH to a Hardhat address.
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./fundora.db` | SQLite database path |
+| `SECRET_KEY` | `change-this-in-production-please` | Session token signing |
+| `FRONTEND_ORIGIN` | `http://localhost:5173` | CORS allowed origin |
+| `SEED_ON_STARTUP` | `false` | Set `true` to seed demo data on first run |
+| `VITE_CONTRACT_ADDRESS` | (from deploy) | Smart contract address |
+| `VITE_API_URL` | `http://localhost:8000` | Backend API URL for frontend |
+
+---
+
+## Database
+
+- **SQLite** — single file, created automatically on first run
+- **Persists** across restarts via Docker volume (`db-data`)
+- **Migration** — new columns are added automatically via `ALTER TABLE` on startup
+- **Seeding** — demo data (4 startups, milestones, proposals) is only inserted when `SEED_ON_STARTUP=true` and the database is empty
+- **Backup** — copy the `fundora.db` file (or the Docker volume)
+- **Reset** — delete the file or run `docker compose down -v`
+
+### Tables
+
+| Table | Purpose |
+|---|---|
+| `users` | Registered users with hashed passwords |
+| `user_sessions` | Server-side session tokens (SHA-256 hashed) |
+| `startups` | Registered startups |
+| `funding_rounds` | Funding targets and contract addresses |
+| `investments` | Investment records (simulated + on-chain) |
+| `milestones` | Milestone tranches with release status |
+| `milestone_evidence` | Evidence submitted by founders |
+| `proposals` | DAO proposals (startup + milestone approvals) |
+| `votes` | Individual votes by DAO members |
+
+---
+
+## Connecting MetaMask
+
+1. MetaMask → **Settings → Networks → Add a network manually**
+   - Network Name: `Hardhat Local`
+   - RPC URL: `http://localhost:8545`
+   - Chain ID: `31337`
+   - Currency Symbol: `ETH`
+2. **Import a test account** — copy the private key from the `docker compose up` output (Account #0, pre-loaded with 10,000 test ETH)
+3. Click **Connect Wallet** in the Fundora navbar
+
+> ⚠️ Test accounts only. Never send real ETH to a Hardhat address.
 
 ---
 
 ## Demo Workflow
 
-Use the **"View as"** role switcher in the top navbar to switch roles without logging in.
+### 1. Register and log in
+- Go to http://localhost:5173/auth
+- Register as a **Founder** (or Investor, or DAO Member)
+- You are automatically logged in and redirected to your role's dashboard
 
-### Simulated demo (no MetaMask needed)
+### 2. Founder — Register a startup
+- From the Founder dashboard, click **Register Startup**
+- Fill in the form and submit → startup appears in DAO proposals
 
-1. **Founder** → Register Startup → Submit for DAO Approval
-2. **DAO Member** → DAO page → Vote YES → startup becomes Approved
-3. **Investor** → Marketplace → EcoTech Solutions → Fund Startup (₹) → Confirm
-4. **Founder** → Milestones → Submit Evidence on MVP Development
-5. **DAO Member** → DAO page → Approve Milestone (Simulated) → ₹2,00,000 Released
+### 3. DAO Member — Vote to approve
+- Log in as a DAO Member (register a new account with DAO Member role)
+- Go to **DAO** → vote YES on the pending proposal
+- Once approval reaches 60%, the startup is approved
 
-### On-chain demo (MetaMask connected)
+### 4. Investor — Fund a startup
+- Log in as an Investor
+- Go to **Marketplace** → open a startup → **Fund Startup**
+- Choose simulated (₹) or on-chain (ETH via MetaMask)
 
-1. Start Hardhat node, deploy contract, configure MetaMask (see above)
-2. Click **Connect Wallet** in the navbar — shows address and ETH balance
-3. **Investor** → Marketplace → EcoTech Solutions → Fund Startup → switch to **On-chain (ETH)** tab → enter amount → **Send ETH** → confirm in MetaMask
-4. **DAO Member** → DAO page → find milestone proposal → **Approve On-chain** → confirm in MetaMask → tx hash shown
-5. **Founder** → Milestones → milestone shows Completed with on-chain tx hash
+### 5. Founder — Submit milestone evidence
+- Log in as the Founder who owns the startup
+- Go to **Milestones** → submit evidence on an In Progress milestone
+
+### 6. DAO Member — Approve milestone release
+- Log in as a DAO Member
+- Go to **DAO** → find the milestone proposal → **Approve Milestone**
+- Funds are released (simulated or on-chain)
 
 ---
 
-## Smart Contract: FundoraFunding.sol
+## Running Tests
 
-| Function | Who calls it | What it does |
-|---|---|---|
-| `registerStartup(...)` | Owner (deployer) | Register a startup with milestones and target |
-| `fundStartup(id)` | Investor | Send ETH — held in escrow |
-| `approveMilestone(id, index)` | DAO member | Cast a YES vote |
-| `releaseMilestone(id, index)` | Owner | Transfer tranche to founder when votes ≥ required |
-| `getStartupInfo(id)` | Anyone | Read startup state |
-| `getMilestoneInfo(id, index)` | Anyone | Read milestone state |
-
-Rules enforced by the contract:
-- Contributions cannot be zero or exceed the remaining target
-- Each address can only vote once per milestone
-- A milestone can only be released once
-- Release only succeeds when `yesVotes >= requiredVotes`
-
-### Run tests
-
+### Smart contract tests (24 tests)
 ```bash
-cd blockchain
-npx hardhat test
-# 24 tests, all passing
+cd blockchain && npx hardhat test
 ```
 
-### Compile only
-
+### Frontend build
 ```bash
-cd blockchain
-npx hardhat compile
+cd frontend && npm run build
+```
+
+### Backend
+```bash
+cd backend && .venv/bin/uvicorn main:app --reload
+# Open http://localhost:8000/docs for interactive API testing
 ```
 
 ---
 
-## API Endpoints (FastAPI)
+## API Endpoints
 
-With the backend running, open **http://localhost:8000/docs** for the full interactive reference.
+### Auth
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/auth/register` | Public | Create account + log in |
+| POST | `/api/auth/login` | Public | Log in with email + password |
+| POST | `/api/auth/logout` | Session | Invalidate session |
+| GET | `/api/auth/me` | Session | Get current user |
 
-Key endpoints:
+### Startups
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/startups` | Public | List all startups |
+| POST | `/api/startups` | Founder | Register a startup |
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/startups` | List all startups |
-| POST | `/api/startups` | Register a startup |
-| POST | `/api/startups/{id}/investments` | Simulated investment |
-| GET | `/api/milestones` | All milestones (flat) |
-| POST | `/api/milestones/{id}/evidence` | Submit evidence |
-| GET | `/api/proposals` | All DAO proposals |
-| POST | `/api/proposals/{id}/vote` | Cast a vote |
-| POST | `/api/proposals/{id}/approve-milestone` | Approve milestone (simulated) |
-| POST | `/api/blockchain/register` | Record on-chain registration tx |
-| POST | `/api/blockchain/invest` | Record confirmed on-chain investment |
-| POST | `/api/blockchain/release` | Record confirmed milestone release |
-| GET | `/api/blockchain/startup/{id}` | Get all on-chain data for a startup |
+### Investments
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/startups/{id}/investments` | Investor | Simulated investment |
+| GET | `/api/my/investments` | Investor | Own portfolio only |
+
+### Milestones
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/milestones` | Public | List all milestones |
+| POST | `/api/milestones/{id}/evidence` | Founder (own startup) | Submit evidence |
+
+### DAO
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/proposals` | Public | List proposals (hasVoted personalised if logged in) |
+| POST | `/api/proposals/{id}/vote` | DAO Member | Cast a vote (one per user) |
+| POST | `/api/proposals/{id}/approve-milestone` | DAO Member | Approve milestone release |
+| POST | `/api/proposals/{id}/reject-milestone` | DAO Member | Reject milestone |
+
+### Blockchain
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/blockchain/register` | Founder (own startup) | Record on-chain registration |
+| POST | `/api/blockchain/invest` | Investor | Record confirmed on-chain investment |
+| POST | `/api/blockchain/release` | DAO Member | Record confirmed milestone release |
+| GET | `/api/blockchain/startup/{id}` | Public | On-chain details (only tx_hash investments shown) |
 
 ---
 
-## Current Limitations
+## Common Errors
 
-- **No real authentication** — the role switcher is a UI prototype shortcut
-- **registerStartup on-chain** is a manual step — the owner calls it via Hardhat scripts or the frontend admin flow (not yet built)
-- **Milestone index** — the contract uses a 0-based index; the DB stores `milestone_index` which must be set correctly to link them
-- **No testnet deployment yet** — the contract runs only on the local Hardhat node; Sepolia deployment is straightforward but not automated
-- **File uploads** are not stored server-side — evidence filenames are recorded but no actual files are saved
-- **No Docker** yet — that is planned for Milestone 5
+**"Not authenticated" (401)** — Your session expired or you haven't logged in. Go to `/auth` and log in.
+
+**"This action requires one of: ..." (403)** — You are logged in but your role doesn't have permission for this action. Register an account with the correct role.
+
+**"Incorrect email or password." (401)** — Either the email doesn't exist, the password is wrong, or the user is a seeded demo user (which has no password and cannot log in).
+
+**"An account with this email already exists." (409)** — The email is already registered. Log in instead.
+
+**"You have already voted on this proposal." (409)** — Each user can only vote once per proposal.
+
+**"You can only submit evidence for your own startup's milestones." (403)** — Founders can only submit evidence for startups they registered.
 
 ---
 
-## Milestones Summary
+## Limitations
 
-| Milestone | Status |
-|---|---|
-| 1 — Frontend prototype (React + Vite) | ✅ Complete |
-| 2 — (skipped / merged into 3) | — |
-| 3 — Monorepo + FastAPI backend + SQLite | ✅ Complete |
-| 4 — Smart contracts + MetaMask integration | ✅ Complete |
-| 5 — Docker, testnet deployment | 🔜 Planned |
+- **No password reset** — not implemented in this milestone
+- **No email verification** — not implemented
+- **registerStartup on-chain** is a manual step (owner-only contract function)
+- **Testnet deployment** — contract runs on Hardhat localhost only
+- **File uploads** — evidence filenames are recorded but no actual files are stored server-side
+- **Investor dashboard** — portfolio display is partially hardcoded in the frontend; the `/api/my/investments` endpoint provides real data
+- **No Docker** for Milestone 6 testing was run — Docker Compose config is provided but tests were run locally

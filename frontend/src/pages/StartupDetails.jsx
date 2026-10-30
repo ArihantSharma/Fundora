@@ -28,7 +28,7 @@ function milestoneIcon(s) {
 
 export default function StartupDetails() {
   const { id } = useParams();
-  const { startups, milestones, fundStartup, walletConnected, fundStartupOnChainAction } = useApp();
+  const { startups, milestones, fundStartup, walletConnected, fundStartupOnChainAction, user } = useApp();
   const navigate = useNavigate();
 
   const startup = startups.find((s) => s.id === Number(id));
@@ -110,9 +110,11 @@ export default function StartupDetails() {
                   <span className={`badge ${startup.status === "Approved" ? "badge-success" : "badge-pending"}`}>{startup.status}</span>
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => { setShowModal(true); setFunded(false); setAmount(""); setAmountEth(""); setError(""); setTxHash(""); setUseChain(walletConnected); }}>
-                💰 Fund Startup
-              </button>
+              {user?.role === "Investor" && (
+                <button className="btn btn-primary" onClick={() => { setShowModal(true); setFunded(false); setAmount(""); setAmountEth(""); setError(""); setTxHash(""); setUseChain(walletConnected); }}>
+                  💰 Fund Startup
+                </button>
+              )}
             </div>
 
             <p style={{ lineHeight: 1.65, marginBottom: "20px" }}>{startup.description}</p>
@@ -174,9 +176,15 @@ export default function StartupDetails() {
           <div className="card">
             <h3 className="mb-16">Funding</h3>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: ".85rem" }}>
-              <span className="text-muted">Raised</span>
+              <span className="text-muted">Raised (₹ simulated)</span>
               <span style={{ fontWeight: 700, color: "var(--success)" }}>{fmt(startup.fundingReceived)}</span>
             </div>
+            {startup.ethRaised > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px", fontSize: ".85rem" }}>
+                <span className="text-muted">Raised (test ETH on-chain)</span>
+                <span style={{ fontWeight: 700, color: "var(--accent)" }}>{Number(startup.ethRaised).toFixed(4)} ETH</span>
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: ".85rem" }}>
               <span className="text-muted">Goal</span>
               <span style={{ fontWeight: 700 }}>{fmt(startup.fundingRequired)}</span>
@@ -184,14 +192,22 @@ export default function StartupDetails() {
             <div className="progress-bar-wrap" style={{ height: 10 }}>
               <div className="progress-bar-fill" style={{ width: pct + "%" }} />
             </div>
-            <div style={{ textAlign: "right", fontSize: ".8rem", color: "var(--text-muted)", marginTop: "6px" }}>{pct}% funded</div>
+            <div style={{ textAlign: "right", fontSize: ".8rem", color: "var(--text-muted)", marginTop: "6px" }}>{pct}% funded (₹)</div>
 
-            <button
-              className="btn btn-primary btn-full mt-16"
-              onClick={() => { setShowModal(true); setFunded(false); setAmount(""); setAmountEth(""); setError(""); setTxHash(""); setUseChain(walletConnected); }}
-            >
-              💰 Fund This Startup
-            </button>
+            {user?.role === "Investor" && (
+              <button
+                className="btn btn-primary btn-full mt-16"
+                onClick={() => { setShowModal(true); setFunded(false); setAmount(""); setAmountEth(""); setError(""); setTxHash(""); setUseChain(walletConnected); }}
+              >
+                💰 Fund This Startup
+              </button>
+            )}
+            {/* Warn if on-chain funding is selected but startup is not registered */}
+            {walletConnected && !startup.contractAddress && (
+              <div style={{ marginTop: "8px", fontSize: ".78rem", color: "var(--warning)", background: "#FFFBEB", padding: "8px 10px", borderRadius: "var(--radius-sm)" }}>
+                ⚠️ Not yet registered on the smart contract — on-chain ETH funding is unavailable. Simulated (₹) investing still works. The founder can register it from their dashboard.
+              </div>
+            )}
           </div>
 
           {/* Pitch deck */}

@@ -1,0 +1,8 @@
+{
+  "name": "fundora-backend-blockchain",
+  "version": "1.0.0",
+  "description": "Minimal ethers.js dependency for the backend on-chain registration script",
+  "dependencies": {
+    "ethers": "^6.17.0"
+  }
+}

@@ -54,13 +54,15 @@ export default function Landing() {
           </button>
         </div>
 
-        {/* Quick stats */}
-        <div style={{
-          display: "flex", gap: "40px", marginTop: "56px", flexWrap: "wrap", justifyContent: "center",
-        }}>
-          {[["12", "Startups Funded"], ["₹48L", "Capital Deployed"], ["94%", "DAO Approval Rate"]].map(([val, label]) => (
+        {/* Platform description instead of fake stats */}
+        <div style={{ display: "flex", gap: "40px", marginTop: "56px", flexWrap: "wrap", justifyContent: "center" }}>
+          {[
+            ["DAO-Governed", "Funding Decisions"],
+            ["Milestone-Based", "Fund Releases"],
+            ["On-Chain", "Escrow & Votes"],
+          ].map(([val, label]) => (
             <div key={label} style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--brand)" }}>{val}</div>
+              <div style={{ fontSize: "1rem", fontWeight: 800, color: "var(--brand)" }}>{val}</div>
               <div style={{ fontSize: ".8rem", color: "var(--text-muted)", fontWeight: 500, marginTop: "2px" }}>{label}</div>
             </div>
           ))}

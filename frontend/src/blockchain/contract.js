@@ -14,7 +14,9 @@ import ABI from "./FundoraFunding.json";
 
 // ── Config ────────────────────────────────────────────────────────────────
 
-// Set VITE_CONTRACT_ADDRESS in frontend/.env after deploying.
+// VITE_CONTRACT_ADDRESS in frontend/.env takes top priority.
+// When running under Docker, the entrypoint script writes the address there
+// before Vite starts, so this value is always up to date.
 export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || "";
 
 // Hardhat local network: Chain ID 31337, RPC http://127.0.0.1:8545
